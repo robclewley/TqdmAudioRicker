@@ -12,25 +12,32 @@ import numpy as np
 from requests import get
 import io
 from scipy.io.wavfile import read
+import note_utils
 
 def hide_audio():
-    """Hide the audio control """
+    """Hide the audio control.
+    """
     disp.display(HTML("<span><style>audio{display:none}</style><span>"))
+
+def activate_audio(framerate):
+    temp_dur = .0001
+    temp_t = np.linspace(0, temp_dur, int(framerate*temp_dur))
+    qtr_t_ix = int(len(temp_t)/4)
+    qtr_fac = np.array(list(range(qtr_t_ix)))/qtr_t_ix
+    mid_fac = np.ones(len(temp_t)-2*qtr_t_ix)
+    data = np.sin(2*np.pi*100.0*temp_t) * np.concatenate((qtr_fac, mid_fac,
+                                            qtr_fac[::-1]), axis=0) #* volume
+    # activate the audio object (will make a brief click)
+    return disp.display(disp.Audio(data, rate=framerate, autoplay=True),
+                                               display_id='tqdm_alerter');
+
 
 class Alert(object):
     def __init__(self, duration=0.04, volume=0.25):
         self.volume = volume # currently not implemented
         self.framerate = 44100
         self.duration = duration
-        temp_dur = .0001
-        temp_t = np.linspace(0, temp_dur, int(self.framerate*temp_dur))
-        qtr_t_ix = int(len(temp_t)/4)
-        qtr_fac = np.array(list(range(qtr_t_ix)))/qtr_t_ix
-        mid_fac = np.ones(len(temp_t)-2*qtr_t_ix)
-        data = np.sin(2*np.pi*100.0*temp_t) * np.concatenate((qtr_fac, mid_fac, qtr_fac[::-1]), axis=0) #* self.volume
-        # activate the audio object (will make a brief click)
-        self.display = disp.display(disp.Audio(data, rate=self.framerate, autoplay=True),
-                                               display_id='tqdm_alerter');
+        self.display = activate_audio(self.framerate)
         hide_audio();
         # allow for update later, based on changing parameters
         self.set_sound()
@@ -54,6 +61,32 @@ class Alert(object):
         self.display.update(disp.Audio(data, rate=self.framerate, autoplay=True));
 
 
+class Sequence(object):
+    def __init__(self, volume=0.25):
+        # note_duration is value of eighth note
+        self.volume = volume # currently not implemented
+        self.framerate = 44100
+        self.display = activate_audio(self.framerate)
+        hide_audio();
+        self.seq = []
+        self.n = 0
+        self.i = 0
+        self.every = 1
+        self.tick = 0 # used with every
+
+    def set_sound(self, seq, note_duration):
+        self.note_duration = note_duration
+        self.seq, self.n = note_utils.sequence_spec_to_wav(seq, note_duration,
+                                                           self.framerate)
+
+    def play(self):
+        self.tick += 1
+        if self.tick % self.every == 0:
+            data = self.seq[self.i]
+            if data is not None:
+                # norm=False parameter to Audio only exists in this PR https://github.com/ipython/ipython/pull/11161
+                self.display.update(disp.Audio(data, rate=self.framerate, autoplay=True));
+            self.i = (1+self.i) % self.n
 
 # ### Careful not to let the frequency get above 2kHz, as there's no volume control and it will be piercing
 #
@@ -106,6 +139,47 @@ class tqdm_audio_ticker(tqdm.tqdm):
             raise
 
 
+class tqdm_music_ticker(tqdm.tqdm):
+    S = Sequence() # will make a tiny click when instantiated in class, one time only!
+
+    def __init__(self, *args, seq=note_utils.ce_sequence, note_duration=0.05, every=1, **kwargs):
+        self.S.set_sound(seq, note_duration)
+        self.S.every = every
+        super(tqdm_music_ticker, self).__init__(*args, **kwargs)
+
+    def update_to(self, b=1, bsize=1, tsize=None):
+        """
+        b  : int, optional
+            Number of blocks transferred so far [default: 1].
+        bsize  : int, optional
+            Size of each block (in tqdm units) [default: 1].
+        tsize  : int, optional
+            Total size (in tqdm units). If [default: None] remains unchanged.
+        """
+        if tsize is not None:
+            self.total = tsize
+        self.update(b * bsize - self.n, True)  # will also set self.n = b * bsize
+        #if b % 2 == 0:
+        self.S.play()
+
+    def update(self, n=1, from_update_to=False):
+        if not from_update_to:
+            # avoid multiple plays at once
+            self.S.play()
+        super(tqdm_music_ticker, self).update()
+
+    def __iter__(self, *args, **kwargs):
+        try:
+            for obj in super(tqdm_music_ticker, self).__iter__(*args, **kwargs):
+                # return super(tqdm...) will not catch exception
+                self.S.play()
+                yield obj
+        # NB: except ... [ as ...] breaks IPython async KeyboardInterrupt
+        except:
+            self.sp(bar_style='danger')
+            raise
+
+
 # # For playing iterated clips through a wave file, let's get Rick's catchphrase
 
 
@@ -124,15 +198,7 @@ class Ricker(object):
         self.sample_rate = wav_data[0]
         self.wav = np.array(wav_data[1], dtype=float)[:,0] # make it mono
         self.set_total(total)
-        temp_dur = .0001
-        temp_t = np.linspace(0, temp_dur, int(self.sample_rate*temp_dur))
-        qtr_t_ix = int(len(temp_t)/4)
-        qtr_fac = np.array(list(range(qtr_t_ix)))/qtr_t_ix
-        mid_fac = np.ones(len(temp_t)-2*qtr_t_ix)
-        data = np.sin(2*np.pi*100.0*temp_t) * np.concatenate((qtr_fac, mid_fac, qtr_fac[::-1]), axis=0) #* self.volume
-        # activate the audio object (will make a brief click)
-        self.display = disp.display(disp.Audio(data, rate=self.sample_rate, autoplay=True),
-                                               display_id='tqdm_alerter');
+        self.display = activate_audio(self.sample_rate)
         hide_audio();
 
     def set_total(self, total):
