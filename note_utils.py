@@ -7,6 +7,25 @@ try:
     import mido
 except ImportError:
     mido = None
+import io
+from requests import get
+
+def fetch_resource(name):
+    """
+    name is either a local file path or an http resource URL.
+    """
+    if name.startswith('https://') or name.startswith('http://'):
+        hdr = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.11 (KHTML, like Gecko) Chrome/23.0.1271.64 Safari/537.11',
+           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+           'Accept-Charset': 'ISO-8859-1,utf-8;q=0.7,*;q=0.3',
+           'Accept-Encoding': 'none',
+           'Accept-Language': 'en-US,en;q=0.8',
+           'Connection': 'keep-alive'}
+        data = get(name, headers=hdr).content
+        return io.BytesIO(data)
+    else:
+        with open(name, 'rb') as f:
+            return f.read()
 
 # SAMPLE_RATE = 44100 # 11250 # Overall sampling rate
 
@@ -86,7 +105,7 @@ def sequence_spec_to_wav(seq_spec, eighth_value, framerate, wav_kind, volume=0.5
             if note == '':
                 f = None
             else:
-                f = getNoteFrequency(note, octave)
+                f = get_note_frequency(note, octave)
         if f is None:
             seq.extend([None]*dur) # rest
         else:
@@ -97,33 +116,21 @@ def sequence_spec_to_wav(seq_spec, eighth_value, framerate, wav_kind, volume=0.5
     return seq, len(seq)
 
 
-
-def convertTimeToSampleCount(time, framerate):
-    """
-    Convert time in millisecs to number of samples needed to fill that duration.
-    """
-    return int(time / (1000.0/framerate))
-
-def getDurationOf8thNote(tempo):
-    """
-    Return the duration of an eighth note in secs.
-    """
-    return 30.0/tempo
-
-def getNoteFrequency(noteChar, octave):
+def get_note_frequency(note_char, octave):
     """
     Return the frequency of a note based on note character and octave number
     Works on the principle that frequency of the same note character an octave
       higher is twice that of the current octave
     Example : Frequency of C2 = 2 x Frequency of C1
     """
-    baseFrequency = octave1Dict[noteChar]
+    baseFrequency = octave1Dict[note_char]
     octaveBasedFrequency = baseFrequency * ( 2**(octave - 1) )
     return octaveBasedFrequency
 
-def getNoteFromMidi(midi, channel=None, smallest_duration=None):
+def get_note_from_midi(midi, channel=None, smallest_duration=None):
     """
-    Convert from a .mid file to a TqdmAudioRicker-compatible format!
+    Convert monophonic data from a .mid file to a TqdmAudioRicker-compatible format!
+    This is experimental and very hacky.
 
     Either pass a filename string as `midi` or an open file / stream handle.
 
@@ -197,15 +204,14 @@ def getNoteFromMidi(midi, channel=None, smallest_duration=None):
         raise ImportError("mido library is not installed.")
 
 
-def getPitchChangedData(noteChar, octave, halfSteps):
+def get_pitch_changed_data(note_char, octave, half_steps):
     """
-    Takes the note character, current octave and the number of halfsteps and returns the pitch changed note data
-    HalfSteps: +ve = Pitch Up, -ve = Pitch Down
+    Takes the note character, current octave and the number of half steps and
+    returns the pitch changed note data.
+    half_steps: +ve = Pitch Up, -ve = Pitch Down
     """
-    octaveChange = floor(halfSteps / 12)
-    noteTypeChange = halfSteps % 12
-
+    octaveChange = floor(half_steps / 12)
+    noteTypeChange = half_steps % 12
     newOctave = octave + octaveChange
-    newChar = octave1Notes[octave1Notes.index(noteChar) + noteTypeChange]
-
+    newChar = octave1Notes[octave1Notes.index(note_char) + noteTypeChange]
     return newChar, newOctave
