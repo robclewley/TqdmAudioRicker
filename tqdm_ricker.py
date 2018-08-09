@@ -33,30 +33,34 @@ def activate_audio(framerate):
 
 
 class Alert(object):
-    def __init__(self, duration=0.04, volume=0.25):
+    def __init__(self, duration=0.06, wav_kind='sine', volume=0.25):
         self.volume = volume # currently not implemented
         self.framerate = 44100
         self.duration = duration
+        self.wav_kind = wav_kind
         self.display = activate_audio(self.framerate)
         hide_audio();
         # allow for update later, based on changing parameters
         self.set_sound()
 
-    def set_sound(self):
+    def set_sound(self, wav_kind=None):
         self.t = np.linspace(0, self.duration, int(self.framerate*self.duration))
         # fade in and out settings for chunks, so no click
         qtr_t_ix = int(len(self.t)/4)
         qtr_fac = np.array(list(range(qtr_t_ix)))/qtr_t_ix
         mid_fac = np.ones(len(self.t)-2*qtr_t_ix)
         self.envelope = np.concatenate((qtr_fac, mid_fac, qtr_fac[::-1]), axis=0)
+        if wav_kind is not None:
+            self.wav_kind = wav_kind
 
     def alert(self, freq=400):
         # freq in Hz
-        if freq < 90:
-            freq = 90
+        if freq < 70:
+            freq = 70
         elif freq > 2500:
             freq = 2500
-        data = np.sin(2*np.pi*float(freq)*self.t) * self.envelope #* self.volume
+        data = note_utils.syn_kinds[self.wav_kind](float(freq), self.duration, 1, self.framerate, self.volume, self.envelope)
+        #np.sin(2*np.pi*float(freq)*self.t) * self.envelope #* self.volume
         # norm=False parameter to Audio only exists in this PR https://github.com/ipython/ipython/pull/11161
         self.display.update(disp.Audio(data, rate=self.framerate, autoplay=True));
 
@@ -70,14 +74,19 @@ class Sequence(object):
         hide_audio();
         self.seq = []
         self.n = 0
-        self.i = 0
         self.every = 1
+        self.reset()
+
+    def reset(self):
+        self.i = 0
         self.tick = 0 # used with every
 
-    def set_sound(self, seq, note_duration):
+    def set_sound(self, seq, note_duration, wav_kind='sine'):
+        assert len(seq) > 0
+        assert note_duration > 0
         self.note_duration = note_duration
         self.seq, self.n = note_utils.sequence_spec_to_wav(seq, note_duration,
-                                                           self.framerate)
+                                                    self.framerate, wav_kind)
 
     def play(self):
         self.tick += 1
@@ -99,11 +108,12 @@ class Sequence(object):
 class tqdm_audio_ticker(tqdm.tqdm):
     A = Alert() # will make a tiny click when instantiated in class, one time only!
 
-    def __init__(self, *args, freq_step=10, duration=0.02, start_freq=150, **kwargs):
+    def __init__(self, *args, freq_step=0, duration=0.02, start_freq=150,
+                 wav_kind='sine', **kwargs):
         self.freq_step = freq_step
         self.start_freq = start_freq
         self.A.duration = duration
-        self.A.set_sound()
+        self.A.set_sound(wav_kind)
         super(tqdm_audio_ticker, self).__init__(*args, **kwargs)
 
     def update_to(self, b=1, bsize=1, tsize=None):
@@ -135,15 +145,15 @@ class tqdm_audio_ticker(tqdm.tqdm):
                 yield obj
         # NB: except ... [ as ...] breaks IPython async KeyboardInterrupt
         except:
-            self.sp(bar_style='danger')
+            self.sp(' ') #bar_style='danger')
             raise
 
 
 class tqdm_music_ticker(tqdm.tqdm):
     S = Sequence() # will make a tiny click when instantiated in class, one time only!
 
-    def __init__(self, *args, seq=note_utils.ce_sequence, note_duration=0.05, every=1, **kwargs):
-        self.S.set_sound(seq, note_duration)
+    def __init__(self, *args, seq=note_utils.ce_sequence, note_duration=0.05, every=1, wav_kind='saw', **kwargs):
+        self.S.set_sound(seq, note_duration, wav_kind)
         self.S.every = every
         super(tqdm_music_ticker, self).__init__(*args, **kwargs)
 
@@ -169,6 +179,7 @@ class tqdm_music_ticker(tqdm.tqdm):
         super(tqdm_music_ticker, self).update()
 
     def __iter__(self, *args, **kwargs):
+        self.S.reset()
         try:
             for obj in super(tqdm_music_ticker, self).__iter__(*args, **kwargs):
                 # return super(tqdm...) will not catch exception
@@ -176,7 +187,7 @@ class tqdm_music_ticker(tqdm.tqdm):
                 yield obj
         # NB: except ... [ as ...] breaks IPython async KeyboardInterrupt
         except:
-            self.sp(bar_style='danger')
+            self.sp(' ') #bar_style='danger')
             raise
 
 
@@ -257,5 +268,5 @@ class tqdm_audio_ricker(tqdm.tqdm):
                 yield obj
         # NB: except ... [ as ...] breaks IPython async KeyboardInterrupt
         except:
-            self.sp(bar_style='danger')
+            self.sp(' ') #bar_style='danger')
             raise
