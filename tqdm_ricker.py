@@ -9,8 +9,6 @@ import os
 from IPython import display as disp
 from IPython.core.display import HTML
 import numpy as np
-from requests import get
-import io
 from scipy.io.wavfile import read
 import note_utils
 
@@ -196,16 +194,7 @@ class tqdm_music_ticker(tqdm.tqdm):
 
 class Ricker(object):
     def __init__(self, total=100):
-        hdr = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.11 (KHTML, like Gecko) Chrome/23.0.1271.64 Safari/537.11',
-               'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-               'Accept-Charset': 'ISO-8859-1,utf-8;q=0.7,*;q=0.3',
-               'Accept-Encoding': 'none',
-               'Accept-Language': 'en-US,en;q=0.8',
-               'Connection': 'keep-alive'}
-        data = get('http://sound.peal.io/ps/audios/000/000/537/original/woo_vu_luvub_dub_dub.wav',
-                   headers=hdr).content
-        wav_data = read(io.BytesIO(data))
-        #wav_data = read('woo_vu_luvub_dub_dub.wav')
+        wav_data = read(note_utils.fetch_resource('http://sound.peal.io/ps/audios/000/000/537/original/woo_vu_luvub_dub_dub.wav'))
         self.sample_rate = wav_data[0]
         self.wav = np.array(wav_data[1], dtype=float)[:,0] # make it mono
         self.set_total(total)
